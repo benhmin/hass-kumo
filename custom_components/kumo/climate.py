@@ -166,7 +166,7 @@ class KumoThermostat(CoordinatedKumoEntity, ClimateEntity):
             self._hvac_modes.append(HVACMode.HEAT)
         if self._pykumo.has_vent_mode():
             self._hvac_modes.append(HVACMode.FAN_ONLY)
-        if self._pykumo.has_auto_mode():
+        if self._pykumo.has_auto_mode() or 'auto' in self._pykumo._profile.get('minimumSetPoints', {}):
             self._hvac_modes.append(HVACMode.HEAT_COOL)
             self._supported_features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         if self._pykumo.has_vane_direction():
@@ -538,7 +538,13 @@ class KumoThermostat(CoordinatedKumoEntity, ClimateEntity):
             _LOGGER.warning("Kumo %s is not available", self._name)
             return
 
-        response = self._pykumo.set_mode(mode)
+        if mode == "auto" and not self._pykumo.has_auto_mode():
+            # Unit supports auto mode but adapter profile incorrectly reports hasModeAuto=False;
+            # bypass pykumo's validation and send the raw command directly
+            command = ('{"c":{"indoorUnit":{"status":{"mode":"%s"}}}}' % mode).encode('utf-8')
+            response = self._pykumo._request(command)
+        else:
+            response = self._pykumo.set_mode(mode)
         _LOGGER.debug(
             "Kumo %s set mode %s (via `%s`) response: %s", self._name, hvac_mode, caller, response
         )
