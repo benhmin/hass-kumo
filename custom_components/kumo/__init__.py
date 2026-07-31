@@ -114,12 +114,29 @@ async def async_kumo_setup_v3(hass: HomeAssistant, username: str, password: str,
     """Attempt setup using V3 API (Comfort app).
 
     Loads any cached kumo_dict first so device addresses are preserved.
+    If cached credentials are complete, uses them directly to avoid a slow
+    cloud fetch that can exceed HA's startup timeout.
     """
     cached_dict = await hass.async_add_executor_job(
         load_json, hass.config.path(KUMO_CONFIG_CACHE)
     )
     if cached_dict and isinstance(cached_dict, list) and len(cached_dict) >= 3:
         account = pykumo.KumoCloudAccount(username, password, kumo_dict=cached_dict)
+        try:
+            zone_table = cached_dict[2]["children"][0]["zoneTable"]
+            if zone_table and all(
+                z.get("password") and z.get("cryptoSerial")
+                for z in zone_table.values()
+            ):
+                for serial, zone in zone_table.items():
+                    account._units[serial] = pykumo.KumoCloudAccount._parse_unit(zone)
+                _LOGGER.info(
+                    "Loaded %d units from cached V3 credentials (skipping cloud fetch)",
+                    len(account._units),
+                )
+                return account
+        except (KeyError, TypeError, IndexError):
+            pass
     else:
         account = pykumo.KumoCloudAccount(username, password)
 
